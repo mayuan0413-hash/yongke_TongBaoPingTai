@@ -1,0 +1,1 @@
+import{t as e}from"./server-U8XCb5OG.js";import{t}from"./framework~index~layout~page~app-page-cache-render~app-page-cache~app-route-handler-dispatch-KrR6A14D.js";var n=e(()=>{throw Error(`Unexpectedly client reference export 'Workspace' is called on server`)},`4852cb73d090`,`Workspace`),r=t();function i(){return(0,r.jsx)(n,{})}export{i as default};

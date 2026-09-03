@@ -1,0 +1,1 @@
+import{a as e,n as t,o as n,s as r}from"./http-jex17FX8.js";async function i(i){try{let t=new URL(i.url);if(t.searchParams.get(`connection`)!==`business`)throw new r(`数据库连接不存在`);let a=t.searchParams.get(`table`);return e(a?await n().columns(a):await n().listTables())}catch(e){return t(e)}}export{i as GET};

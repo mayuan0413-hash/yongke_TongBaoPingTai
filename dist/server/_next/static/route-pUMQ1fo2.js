@@ -1,0 +1,1 @@
+import{a as e,i as t,n,r,s as i}from"./http-jex17FX8.js";async function a(){try{return e(await t().list())}catch(e){return n(e)}}async function o(a){try{let n=await r(a);if(typeof n.name!=`string`)throw new i(`请输入项目名称`);return e(await t().create(n.name),201)}catch(e){return n(e)}}export{a as GET,o as POST};

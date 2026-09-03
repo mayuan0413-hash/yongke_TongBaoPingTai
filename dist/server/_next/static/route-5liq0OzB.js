@@ -1,0 +1,1 @@
+import{a as e,n as t,r as n,s as r,t as i}from"./http-jex17FX8.js";async function a(a,o){try{let t=await n(a);if(!Number.isInteger(t.revision))throw new r(`保存序号无效`);let s=await o.params;return e(await i().refresh(s.id,s.sheetId,t.revision))}catch(e){return t(e)}}export{a as POST};

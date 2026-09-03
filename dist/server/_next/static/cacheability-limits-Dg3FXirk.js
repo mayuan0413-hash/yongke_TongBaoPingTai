@@ -1,0 +1,1 @@
+var e=16*1024*1024,t=32*1024*1024,n=2e4;export{e as n,n as r,t};

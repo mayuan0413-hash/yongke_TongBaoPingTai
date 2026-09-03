@@ -1,0 +1,10 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "bulletin-source-local",
+  "compatibility_date": "2026-08-31",
+  "d1_databases": [{
+    "binding": "BUSINESS_DB",
+    "database_name": "bulletin-source-local",
+    "database_id": "00000000-0000-4000-8000-000000000001"
+  }]
+}
