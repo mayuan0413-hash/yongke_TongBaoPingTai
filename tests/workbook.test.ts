@@ -36,9 +36,11 @@ void test('插入和删除行保持已有单元格与自定义行高对齐', () 
   assert.equal(project.sheets[0].cells[cellKey(2, 1)].input, '渠道');
 });
 
-void test('已有公式文本时阻止会破坏引用的行列结构修改', () => {
-  const project = applyCommand(fresh(), { type: 'setCells', sheetId: 'sheet-1', changes: [{ row: 0, col: 0, input: '=B1' }] });
-  assert.throws(() => applyCommand(project, { type: 'insertAxis', sheetId: 'sheet-1', axis: 'column', index: 0, count: 1 }), /公式引用调整/);
+void test('插入列时智能平移已有公式引用', () => {
+  let project = applyCommand(fresh(), { type: 'setCells', sheetId: 'sheet-1', changes: [{ row: 0, col: 0, input: '=B1' }] });
+  project = applyCommand(project, { type: 'insertAxis', sheetId: 'sheet-1', axis: 'column', index: 0, count: 1 });
+  // 原 A1(0:0) 移动到 B1(0:1)，其引用的 B1 平移为 C1
+  assert.equal(project.sheets[0].cells['0:1']?.input, '=C1');
 });
 
 void test('复制 Sheet 使用独立数据并生成不冲突的名称', () => {

@@ -1,0 +1,1 @@
+import{a as e}from"./http-B97VS-O9.js";async function t(){return e([{key:`business`,name:`业务数据库`,kind:`d1-sqlite`}])}export{t as GET};

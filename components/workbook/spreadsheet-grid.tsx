@@ -1,14 +1,16 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { bounds, cellKey, columnLabel, inSelection, selectionLabel } from '@/domain/workbook/address';
+import { bounds, cellKey, columnLabel, fromKey, inSelection, selectionLabel } from '@/domain/workbook/address';
 import { copyTsv, numericValue, pasteChanges } from '@/domain/workbook/clipboard';
 import { DEFAULT_COLUMN_WIDTH, DEFAULT_ROW_HEIGHT, type Sheet, type Selection, type WorkbookCommand } from '@/domain/workbook/types';
 
-type Menu = { x: number; y: number; axis: 'row'|'column'; index: number } | null;
-interface Props { sheet: Sheet; onCommand: (command: WorkbookCommand) => void; report: (message: string, error?: boolean) => void; readOnly?: boolean }
+import type { SheetCalculationResult } from '@/domain/formula/types';
 
-export function SpreadsheetGrid({ sheet, onCommand, report, readOnly = false }: Props) {
+type Menu = { x: number; y: number; axis: 'row'|'column'; index: number } | null;
+interface Props { sheet: Sheet; onCommand: (command: WorkbookCommand) => void; report: (message: string, error?: boolean) => void; readOnly?: boolean; calculationResult?: SheetCalculationResult }
+
+export function SpreadsheetGrid({ sheet, onCommand, report, readOnly = false, calculationResult }: Props) {
  const scrollRef = useRef<HTMLDivElement>(null);
  const dragging = useRef(false);
  const [selection, setSelection] = useState<Selection>({anchor:{row:0,col:0},focus:{row:0,col:0}});
@@ -31,9 +33,19 @@ export function SpreadsheetGrid({ sheet, onCommand, report, readOnly = false }: 
  const virtualRows = rows.getVirtualItems(), virtualCols = columns.getVirtualItems();
  const numeric = useMemo(() => {
    let count = 0, sum = 0;
-   for (const [key, cell] of Object.entries(sheet.cells)) if (inSelection({row:Number(key.split(':')[0]),col:Number(key.split(':')[1])}, selection)) { const value=numericValue(cell.input); if(value!==null){count++;sum+=value;} }
+   for (const [key, cell] of Object.entries(sheet.cells)) {
+     if (inSelection(fromKey(key), selection)) {
+       if (cell.input.startsWith('=')) {
+         const calc = calculationResult?.cells.get(key);
+         if (calc?.value.type === 'number') { count++; sum += calc.value.value; }
+       } else {
+         const value = numericValue(cell.input);
+         if (value !== null) { count++; sum += value; }
+       }
+     }
+   }
    return { count, sum };
- }, [sheet.cells, selection]);
+ }, [sheet.cells, selection, calculationResult]);
  const choose = (row:number,col:number,event?:React.PointerEvent) => {
    const pos={row,col}; setEditing(null);
    setSelection(previous => event?.shiftKey ? {...previous,focus:pos}:{anchor:pos,focus:pos});
@@ -75,7 +87,7 @@ export function SpreadsheetGrid({ sheet, onCommand, report, readOnly = false }: 
  return <div className="grid-area">
    <div className="formula-bar">
     <div className="name-box">{selectionLabel(selection)}</div><span className="fx">fx</span>
-    <input value={draft} readOnly={readOnly} aria-label="单元格内容" placeholder={readOnly?'数据库 Sheet 为只读；转为手工数据后可编辑':'输入内容；公式计算将在公式阶段启用'} onFocus={()=>readOnly?explainReadOnly():setEditing('formula')} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();commit();}}} onBlur={()=>editing==='formula'&&commit()} />
+    <input value={draft} readOnly={readOnly} aria-label="单元格内容" placeholder={readOnly?'数据库 Sheet 为只读；转为手工数据后可编辑':'输入内容或以 = 开头的公式'} onFocus={()=>readOnly?explainReadOnly():setEditing('formula')} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();commit();}}} onBlur={()=>editing==='formula'&&commit()} />
    </div>
    <div ref={scrollRef} className="spreadsheet" tabIndex={0} role="grid" aria-rowcount={sheet.rowCount} aria-colcount={sheet.columnCount} onScroll={e=>setScroll({x:e.currentTarget.scrollLeft,y:e.currentTarget.scrollTop})} onKeyDown={onKeyDown} onCopy={copy} onPaste={paste}>
     <div className="grid-canvas" style={{width:columns.getTotalSize()+46,height:rows.getTotalSize()+31}}>
@@ -84,9 +96,17 @@ export function SpreadsheetGrid({ sheet, onCommand, report, readOnly = false }: 
      {virtualRows.map(row=><div key={row.key} className={`row-head ${row.index>=b.top&&row.index<=b.bottom?'axis-selected':''}`} style={{top:row.start+31,left:scroll.x,height:row.size}} onPointerDown={e=>{e.preventDefault();setSelection({anchor:{row:row.index,col:0},focus:{row:row.index,col:sheet.columnCount-1}});}} onContextMenu={e=>{e.preventDefault();if(!readOnly)setMenu({x:e.clientX,y:e.clientY,axis:'row',index:row.index});}}>{row.index+1}{!readOnly&&<button className="resize-row" aria-label={`调整第 ${row.index+1} 行高度`} onPointerDown={e=>{e.stopPropagation();resize('row',row.index,e.clientY,row.size);}}/>}</div>)}
      {virtualRows.flatMap(row=>virtualCols.map(col=>{
        const selected=inSelection({row:row.index,col:col.index},selection), focused=row.index===selection.focus.row&&col.index===selection.focus.col;
-       const input=sheet.cells[cellKey(row.index,col.index)]?.input??'';
-       return <div key={row.key+':'+col.key} role="gridcell" tabIndex={-1} aria-selected={selected} className={`grid-cell ${selected?'selected':''} ${focused?'focused':''}`} style={{top:row.start+31,left:col.start+46,width:col.size,height:row.size}} onPointerDown={e=>choose(row.index,col.index,e)} onPointerEnter={()=>{if(dragging.current)setSelection(previous=>({...previous,focus:{row:row.index,col:col.index}}));}} onDoubleClick={()=>{if(readOnly)explainReadOnly();else{setDraft(input);setEditing('cell');}}} title={readOnly?'数据库 Sheet 为只读；转为手工数据后可编辑':input.startsWith('=')?'公式计算将在 Milestone 3 启用':''}>
-        {focused&&editing==='cell'&&!readOnly?<input className="cell-editor" autoFocus value={draft} onChange={e=>setDraft(e.target.value)} onBlur={()=>commit()}/>:<span>{input.startsWith("'")?input.slice(1):input}</span>}
+       const key=cellKey(row.index,col.index);
+       const cell=sheet.cells[key];
+       const input=cell?.input??'';
+       const isFormula=input.startsWith('=');
+       const calc=calculationResult?.cells.get(key);
+       const displayText=isFormula?(calc?.display??''):(input.startsWith("'")?input.slice(1):input);
+       const hasError=isFormula&&calc?.error!==undefined;
+       const errorTip=calc?.error?`${calc.error.type} ${calc.error.message}`:'';
+       const cellTitle=readOnly?'数据库 Sheet 为只读；转为手工数据后可编辑':hasError?errorTip:isFormula?`公式: ${input} (计算值: ${displayText})`:'';
+       return <div key={row.key+':'+col.key} role="gridcell" tabIndex={-1} aria-selected={selected} className={`grid-cell ${selected?'selected':''} ${focused?'focused':''}`} style={{top:row.start+31,left:col.start+46,width:col.size,height:row.size}} onPointerDown={e=>choose(row.index,col.index,e)} onPointerEnter={()=>{if(dragging.current)setSelection(previous=>({...previous,focus:{row:row.index,col:col.index}}));}} onDoubleClick={()=>{if(readOnly)explainReadOnly();else{setDraft(input);setEditing('cell');}}} title={cellTitle}>
+        {focused&&editing==='cell'&&!readOnly?<input className="cell-editor" autoFocus value={draft} onChange={e=>setDraft(e.target.value)} onBlur={()=>commit()}/>:<span className={hasError?'cell-error':''}>{displayText}</span>}
        </div>;
      }))}
     </div>

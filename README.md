@@ -1,6 +1,6 @@
 # 通报平台
 
-这是从零构建的通报平台。当前完成 **Milestone 2：数据源层**，已有可持久化的 Project / Sheet 工作区、数据库查询快照与手工数据编辑，并为公式计算保留清晰边界。
+这是从零构建的通报平台。当前完成 **Milestone 3：公式 MVP**，已有独立的公式解析与求值引擎、强类型 FormulaValue 体系、惰性求值函数注册机制、跨 Sheet 与整列引用、循环引用检测，以及行列结构变更时的公式智能平移。
 
 ## 当前能力
 
@@ -9,6 +9,7 @@
 - Excel 风格行号、列号和 A1 地址栏
 - 单元格键盘编辑、双击编辑、复制、粘贴和拖选多单元格
 - 插入与删除行列、拖拽或精确设置行高列宽
+- 行列插入/删除时公式引用智能平移（支持 $A$1, $A1, A$1, A1 四种模式），被删区域置为 #REF!
 - 横纵双向虚拟渲染，大范围空白网格不会生成单元格记录
 - D1 / SQLite 持久化，单元格按非空行稀疏保存
 - 顺序自动保存和修改序号检查，防止不同页面静默覆盖数据
@@ -17,8 +18,13 @@
 - 查询预览、绑定 Sheet、手工刷新以及刷新行数和截断状态提示
 - 数据快照分块保存，刷新失败时保留上一版完整数据
 - 数据库 Sheet 只读；可把当前快照转换成普通手工数据继续编辑
-
-公式文本可以在单元格中保存，但公式解析、计算及插入行列时的引用改写属于 Milestone 3。当前检测到公式文本时会阻止插入或删除行列，避免破坏引用。
+- 独立的公式计算层（`domain/formula/`），支持以 `=` 开头的公式输入与解析
+- 强类型公式值体系：`number`、`string`、`boolean`、`blank`、`error`、`range`
+- 基础运算符：`+`、`-`、`*`、`/`、`%`、`^`、`&` 及比较运算符，严格遵循 Excel 优先级
+- 引用系统：普通单元格（A1, AA100）、矩形区域（A1:B10）、整列引用（A:A, E:H，按有效 usedRange 截断）、跨 Sheet 引用及单引号特殊 Sheet 名称（如 `'小时级通报 (2)'!A1`）
+- 惰性求值与函数注册体系：内置支持 `IF`、`IFERROR`（未选择分支不求值，避免意外除零报错）、`SUM`、`COUNT`、`AVERAGE`、`INT`
+- 完善的公式错误体系：`#REF!`、`#DIV/0!`、`#VALUE!`、`#NAME?`、`#CIRCULAR!`（死循环环路检测）
+- 界面公式与计算值分离：双击/公式栏编辑原公式，单元格与状态栏渲染计算值及错误高亮，且渲染过程不重复重算工作簿
 
 ## 本地运行
 
@@ -45,12 +51,13 @@ npm run build
 
 工作簿纯数据模型与命令位于 `domain/workbook/`，数据查询、快照和刷新变更协议位于 `domain/data-sources/`。所有查询字段都会先与实时表结构比对，表名和字段名只通过标识符转义进入 SQL，条件值全部使用绑定参数。
 
-## Milestone 3 接口
+## 公式系统与 Milestone 4 接口
 
-- `createCalculationInput(project)` 提供与 React、D1 无关的只读计算输入，包括 Sheet 查找、单元格读取、原始数据类型和已用区域。
-- 每次刷新返回 `WorkbookDataChange`，包含修改序号、脏区域、刷新前后行数和行数变化，公式引擎可以据此做增量失效。
-- 数据库数值同时保留显示文本 `input` 和原始 `sourceValue`，公式引擎可避免先格式化再解析造成的精度损失。
-- 首行字段标签和数据行使用统一的零基坐标，公式解析器可直接复用现有 A1 地址模块。
+- `domain/formula/` 包含独立的公式解析、引用解析、函数注册与求值计算层。
+- `FormulaValue` 强类型体系（`number`、`string`、`boolean`、`blank`、`error`、`range`），其中 `range` 保留了完整的 `ResolvedRange`（工作表 ID、起始与结束坐标、`getCellValue`、`getValues`、`flatten`），为 Milestone 4 的 `SUMIFS`、`COUNTIFS`、`VLOOKUP`、`XLOOKUP` 提供零损耗多维区域访问支持。
+- `defaultRegistry.register(name, (args, context) => FormulaValue)` 提供惰性求值函数签名，函数直接接收 AST 节点，自主控制参数求值时机（例如 `IF` 分支选择、`IFERROR` 异常捕获）。
+- `rewriteFormulaOnAxisMutation(...)` 提供基于 Token 替换的高保真公式平移能力，在保留用户原始格式与空白的同时，对四种引用模式（$A$1, $A1, A$1, A1）实现行列插入移动与越界 `#REF!` 标记。
+- `CalculationCache` 结合 `project.id` 与 `project.revision` 实现计算结果缓存，防止界面渲染时重复执行整表重算。
 
 ## 数据边界
 

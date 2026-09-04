@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Copy, Database, Ellipsis, FileSpreadsheet, FolderOpen, Loader2, Pencil, Plus, RefreshCw, Table2, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -8,6 +8,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { applyCommand, copySheetName, nextSheetName } from '@/domain/workbook/commands';
 import type { Project, ProjectSummary, WorkbookCommand } from '@/domain/workbook/types';
 import { api } from '@/lib/api';
+import { evaluateWorkbook } from '@/domain/formula';
 import { SpreadsheetGrid } from './spreadsheet-grid';
 import { DataSourcePanel } from './data-source-panel';
 
@@ -38,6 +39,10 @@ export function Workspace() {
    else command({type:'renameSheet',sheetId:activeSheet,name:value});setModal(null);}catch(e){report((e as Error).message,true);}
  };
  const sheet=project?.sheets.find(s=>s.id===activeSheet)??project?.sheets[0];
+ const workbookCalculation = useMemo(() => {
+   if (!project) return null;
+   return evaluateWorkbook(project);
+ }, [project?.id, project?.revision]);
  const makeSheetEditable=()=>{if(!sheet?.dataSource)return;sourceMutation(p=>api.unbindSource(p.id,sheet.id,p.revision)).then(()=>report('已转为手工数据，现在可以编辑单元格')).catch(e=>report((e as Error).message,true));};
  const askNewProject=()=>setModal({type:'project',title:'新建通报项目',value:''});
  const deleteProject=async()=>{const p=projectRef.current;if(!p||!confirm(`确定删除“${p.name}”吗？此操作无法撤销。`))return;try{await api.delete(p.id,p.revision);setProject(null);setActiveSheet('');await refreshList();report('项目已删除');}catch(e){report((e as Error).message,true);}};
@@ -49,14 +54,14 @@ export function Workspace() {
    <div className="sidebar-label projects-label">我的项目<button aria-label="新建项目" onClick={askNewProject}><Plus size={15}/></button></div>
    <div className="project-list">{projects.map(item=><button key={item.id} className={item.id===project?.id?'project-item active':'project-item'} onClick={()=>openProject(item.id)}><FileSpreadsheet size={15}/><span>{item.name}</span><small>{item.sheetCount}</small></button>)}</div>
    {!projects.length&&!loading&&<p className="sidebar-empty">新建项目，开始制作第一份通报。</p>}
-   <div className="sidebar-foot"><span className="status-dot"/>数据源层<span className="milestone-tag">M2</span></div>
+   <div className="sidebar-foot"><span className="status-dot"/>公式计算层<span className="milestone-tag">M3</span></div>
   </aside>
   <section className="main-surface">
-   <header className="topbar"><div className="breadcrumb">工作空间 <span>/</span><strong>{project?.name??'通报项目'}</strong></div><span className="phase-label">第二阶段 · 数据源层</span></header>
+   <header className="topbar"><div className="breadcrumb">工作空间 <span>/</span><strong>{project?.name??'通报项目'}</strong></div><span className="phase-label">第三阶段 · 公式计算层</span></header>
    {loading?<div className="loading"><Loader2 className="spin"/>正在加载工作区</div>:project&&sheet?<><div className="workbook-bar"><div><div className="eyebrow">通报项目</div><div className="project-title"><h1>{project.name}</h1><button aria-label="修改项目名称" onClick={()=>setModal({type:'renameProject',title:'修改项目名称',value:project.name})}><Pencil size={14}/></button></div><p>{project.sheets.length} 个 Sheet · 数据自动保存</p></div><DropdownMenu><DropdownMenuTrigger render={<Button variant="outline" size="icon"/>}><Ellipsis/></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={()=>setModal({type:'renameProject',title:'修改项目名称',value:project.name})}><Pencil/>修改项目名称</DropdownMenuItem><DropdownMenuItem variant="destructive" onClick={deleteProject}><Trash2/>删除项目</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div>
     <div className="editor-shell">
      <div className="sheet-heading"><Table2 size={17}/><strong>{sheet.name}</strong><span>{sheet.dataSource?'数据库 · 只读':'手工数据 · 可编辑'}</span>{sheet.dataSource&&<small>{sheet.dataSource.lastRowCount.toLocaleString()} 行{sheet.dataSource.truncated?' · 已达查询上限':''}</small>}<div className="sheet-tools">{sheet.dataSource&&<><Button variant="outline" size="sm" onClick={makeSheetEditable}>转为手工数据</Button><Button variant="outline" size="sm" disabled={refreshing} onClick={()=>{setRefreshing(true);sourceMutation(p=>api.refreshSource(p.id,sheet.id,p.revision)).then(()=>report('数据已刷新')).catch(e=>report((e as Error).message,true)).finally(()=>setRefreshing(false));}}>{refreshing?<Loader2 className="spin"/>:<RefreshCw/>}刷新数据</Button></>}<Button variant="outline" size="sm" onClick={()=>setSourcePanel(true)}><Database/>数据源</Button></div></div>
-     <SpreadsheetGrid sheet={sheet} onCommand={command} report={report} readOnly={!!sheet.dataSource}/>
+     <SpreadsheetGrid sheet={sheet} onCommand={command} report={report} readOnly={!!sheet.dataSource} calculationResult={workbookCalculation?.sheets.get(sheet.id)}/>
      {sourcePanel&&<DataSourcePanel key={sheet.id} project={project} sheet={sheet} report={report} onClose={()=>setSourcePanel(false)} onBind={(dataSourceId,query)=>sourceMutation(p=>api.bindSource(p.id,sheet.id,p.revision,dataSourceId,query))} onRefresh={()=>sourceMutation(p=>api.refreshSource(p.id,sheet.id,p.revision))} onUnbind={()=>sourceMutation(p=>api.unbindSource(p.id,sheet.id,p.revision))}/>} 
      <div className="sheet-tabs"><button className="tab-scroll" aria-label="向左滚动 Sheet"><ChevronLeft/></button><div className="tabs-scroll">{project.sheets.map((s,index)=><div key={s.id} className={s.id===sheet.id?'sheet-tab active':'sheet-tab'} draggable onDragStart={e=>e.dataTransfer.setData('text/sheet-index',String(index))} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();const from=Number(e.dataTransfer.getData('text/sheet-index'));if(Number.isInteger(from)&&from!==index)command({type:'moveSheet',sheetId:project.sheets[from].id,toIndex:index});}}><button onClick={()=>setActiveSheet(s.id)}><Table2 size={14}/>{s.name}</button>{s.id===sheet.id&&<DropdownMenu><DropdownMenuTrigger className="tab-menu" aria-label="Sheet 菜单"><Ellipsis size={14}/></DropdownMenuTrigger><DropdownMenuContent><DropdownMenuItem onClick={()=>setModal({type:'renameSheet',title:'修改 Sheet 名称',value:s.name})}><Pencil/>重命名</DropdownMenuItem><DropdownMenuItem onClick={()=>{const id=crypto.randomUUID();command({type:'duplicateSheet',sheetId:s.id,id,name:copySheetName(project,s.name)});setActiveSheet(id);}}><Copy/>复制 Sheet</DropdownMenuItem><DropdownMenuItem variant="destructive" onClick={deleteSheet}><Trash2/>删除 Sheet</DropdownMenuItem></DropdownMenuContent></DropdownMenu>}</div>)}</div><button className="tab-scroll" aria-label="向右滚动 Sheet"><ChevronRight/></button><button className="add-sheet" onClick={()=>setModal({type:'sheet',title:'新建 Sheet',value:nextSheetName(project)})}><Plus/>新建 Sheet</button>
      </div>

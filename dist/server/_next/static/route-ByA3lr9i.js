@@ -1,1 +1,0 @@
-import{a as e}from"./http-jex17FX8.js";async function t(){return e([{key:`business`,name:`业务数据库`,kind:`d1-sqlite`}])}export{t as GET};

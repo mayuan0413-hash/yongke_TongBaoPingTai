@@ -1,5 +1,6 @@
 import { cellKey, fromKey, inSelection } from './address.ts';
 import { DEFAULT_COLUMNS, DEFAULT_ROWS, MAX_COLUMNS, MAX_PASTE_CELLS, MAX_ROWS, type Project, type Sheet, type WorkbookCommand } from './types.ts';
+import { rewriteFormulaOnAxisMutation } from '../formula/rewriter.ts';
 
 export class WorkbookError extends Error {}
 function ensure(valid: unknown, message: string): asserts valid { if (!valid) throw new WorkbookError(message); }
@@ -111,8 +112,6 @@ export function applyCommand(project: Project, command: WorkbookCommand, now = n
       const insert = command.type === 'insertAxis';
       integer(command.index, 0, insert ? length : length - 1, '位置'); integer(command.count, 1, maximum, '数量');
       ensure(insert ? length + command.count <= maximum : command.index + command.count <= length && length - command.count >= 1, '不能删除全部行列或超出边界');
-      // Formula reference rewriting belongs to M3. Never silently corrupt saved formulas.
-      ensure(!project.sheets.some(s => Object.values(s.cells).some(c => c.input.startsWith('='))), '项目中已保存公式文本。公式引用调整将在公式阶段实现，当前不能插入或删除行列；可清空单元格内容。');
       const shift = (value: number): number | null => insert ? (value >= command.index ? value + command.count : value) : value < command.index ? value : value < command.index + command.count ? null : value - command.count;
       const cells: Sheet['cells'] = {};
       for (const [key, cell] of Object.entries(source.cells)) {
@@ -125,6 +124,26 @@ export function applyCommand(project: Project, command: WorkbookCommand, now = n
       for (const [key, value] of Object.entries(sizes)) { const target = shift(Number(key)); if (target !== null) shifted[target] = value; }
       if (isRow) { sheet.rowCount = length + (insert ? command.count : -command.count); sheet.rowHeights = shifted; }
       else { sheet.columnCount = length + (insert ? command.count : -command.count); sheet.columnWidths = shifted; }
+
+      // Rewrite formulas across all sheets targeting the mutated sheet
+      const mutation = { sheetName: source.name, axis: command.axis, index: command.index, count: command.count, isInsert: insert };
+      for (let sIdx = 0; sIdx < next.sheets.length; sIdx++) {
+        const targetSheet = next.sheets[sIdx];
+        let hasChanges = false;
+        const rewrittenCells: Sheet['cells'] = { ...targetSheet.cells };
+        for (const [k, c] of Object.entries(targetSheet.cells)) {
+          if (c.input.startsWith('=')) {
+            const rewritten = rewriteFormulaOnAxisMutation(c.input, targetSheet.name, mutation);
+            if (rewritten !== c.input) {
+              rewrittenCells[k] = { ...c, input: rewritten };
+              hasChanges = true;
+            }
+          }
+        }
+        if (hasChanges) {
+          next.sheets[sIdx] = { ...targetSheet, cells: rewrittenCells };
+        }
+      }
       break;
     }
     case 'resizeAxis':

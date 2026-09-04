@@ -1,0 +1,1 @@
+import{a as e,n as t,r as n,s as r,t as i}from"./http-B97VS-O9.js";async function a(a,o){try{let t=await n(a);if(typeof t.dataSourceId!=`string`)throw new r(`请选择数据源`);return e(await i().preview((await o.params).id,t.dataSourceId,t.query))}catch(e){return t(e)}}export{a as POST};
